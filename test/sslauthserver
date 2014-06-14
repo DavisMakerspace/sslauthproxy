@@ -1,0 +1,46 @@
+#!/usr/bin/env ruby
+
+require 'socket'
+require_relative '../lib/sslauthserver'
+
+require 'minitest/spec'
+require 'minitest/autorun'
+
+describe SSLAuthServer do
+  before do
+    certs_dir = "#{File.dirname(__FILE__)}/certs"
+    @server_key = OpenSSL::PKey::RSA.new File.read "#{certs_dir}/server.key"
+    @server_cert = OpenSSL::X509::Certificate.new File.read "#{certs_dir}/server.pub"
+    @clients = [:client1,:client2,:unknown].map{|id|
+      [id,
+        [[:key,OpenSSL::PKey::RSA], [:pub,OpenSSL::X509::Certificate]].map{|type,cls|
+          [type, cls.new(File.read("#{certs_dir}/#{id}.#{type}"))]}.to_h]}.to_h
+  end
+  def try_connect(auth_client_ids, connect_client_id)
+    tcp_server = TCPServer.new 0
+    server = SSLAuthServer.new(tcp_server, @server_key, @server_cert, @clients.select{|id,_|auth_client_ids.include?(id)}.map{|id,ssl|[ssl[:pub],id]}.to_h)
+    server_thread = Thread.new{ server.accept.client_id }
+    context = OpenSSL::SSL::SSLContext.new
+    context.verify_mode = OpenSSL::SSL::VERIFY_PEER
+    context.cert_store = OpenSSL::X509::Store.new
+    context.cert_store.add_cert @server_cert
+    context.key = @clients[connect_client_id][:key] if connect_client_id
+    context.cert = @clients[connect_client_id][:pub] if connect_client_id
+    tcp_socket = TCPSocket.new 'localhost', tcp_server.local_address.ip_port
+    client = OpenSSL::SSL::SSLSocket.new tcp_socket, context
+    client.connect
+    server_thread.join.value
+  end
+  it "can accept clients" do
+    try_connect([:client1,:client2],:client1).must_equal :client1
+    try_connect([:client1,:client2],:client2).must_equal :client2
+  end
+  it "can deny unknown client" do
+    err = proc { try_connect([:client1,:client2],:unknown) }.must_raise OpenSSL::SSL::SSLError
+    err.message.must_match /alert unknown ca/
+  end
+  it "can deny certless client" do
+    err = proc { try_connect([:client1,:client2],nil) }.must_raise OpenSSL::SSL::SSLError
+    err.message.must_match /alert handshake failure/
+  end
+end
