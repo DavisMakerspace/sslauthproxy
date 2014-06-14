@@ -11,6 +11,12 @@ class SSLAuthServer < OpenSSL::SSL::SSLServer
     @clients = client_ids.map{|cert,id|[cert.to_pem,id.to_sym]}.to_h
     super(server, ssl_context)
   end
+  def self.new_from_paths(server, server_key_path, server_cert_path, client_paths)
+    server_key = OpenSSL::PKey::RSA.new File.read server_key_path
+    server_cert = OpenSSL::X509::Certificate.new File.read server_cert_path
+    client_ids = client_paths.map{|path,id|[OpenSSL::X509::Certificate.new(File.read(path)),id]}.to_h
+    SSLAuthServer.new server, server_key, server_cert, client_ids
+  end
   def accept
     socket = super
     id = @clients[socket.peer_cert.to_pem] if socket.peer_cert
