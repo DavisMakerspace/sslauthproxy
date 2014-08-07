@@ -1,0 +1,5 @@
+etc/*
+!etc/config.rb.example
+!etc/clients
+etc/clients/*
+!etc/clients/.gitkeep

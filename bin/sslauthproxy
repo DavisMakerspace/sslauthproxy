@@ -1,0 +1,34 @@
+#!/usr/bin/env ruby
+
+require 'logger'
+require 'socket'
+require_relative '../lib/sslauthserver'
+require_relative '../lib/proxy'
+
+require_relative '../etc/config'
+LOGGER ||= Logger.new STDERR
+ETC ||= "#{File.dirname __FILE__}/../etc"
+HOSTNAME ||= '0.0.0.0'
+PORT ||= 8888
+SERVER ||= TCPServer.new HOSTNAME, PORT
+SERVER_KEY ||= "#{ETC}/server.key"
+SERVER_CERT ||= "#{ETC}/server.pub"
+CLIENTS ||= "#{ETC}/clients"
+CLIENT_EXT ||= ".pub"
+CLIENT_EXT_RE ||= /#{CLIENT_EXT}$/
+LOGGER.fatal "Must define PROXY proc" if !PROXY
+
+client_map = Dir.new(CLIENTS).
+  select{|file| !file.start_with?('.') && file =~ CLIENT_EXT_RE }.
+  map{|file| [File.absolute_path("#{CLIENTS}/#{file}"), file.rpartition(CLIENT_EXT_RE).first] }.
+  select{|path,id| File.file?(path) || File.symlink?(path) }.
+  to_h
+client_map.each{|path, id| LOGGER.info "registered client #{id.inspect} #{path.inspect}"}
+
+sslserver = SSLAuthServer.new_from_paths SERVER, SERVER_KEY, SERVER_CERT, client_map
+LOGGER.info "created SSL authentication server"
+
+proxyserver = Proxy.new sslserver, PROXY, logger:LOGGER
+LOGGER.info "created proxy server"
+
+proxyserver.run

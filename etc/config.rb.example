@@ -1,0 +1,6 @@
+PORT = 8888
+PROXY = ->(client) do
+  socket = UNIXSocket.new '/path/to/socket'
+  socket.puts "This is #{client.client_id}"
+  socket
+end
